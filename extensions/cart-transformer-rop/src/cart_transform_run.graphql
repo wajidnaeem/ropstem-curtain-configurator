@@ -1,0 +1,22 @@
+query CartTransformRunInput {
+  shop {
+    # JSON snapshot of all curtain_pricing_tier metaobjects, written by the
+    # admin app. Reading one metafield keeps the query under the complexity limit
+    # (reading each metaobject field individually costs far more).
+    pricingTiers: metafield(namespace: "$app", key: "curtain_pricing_tiers") {
+      jsonValue
+    }
+  }
+
+  cart {
+    lines {
+      id
+      width: attribute(key: "Width") {
+        value
+      }
+      drop: attribute(key: "Drop") {
+        value
+      }
+    }
+  }
+}
