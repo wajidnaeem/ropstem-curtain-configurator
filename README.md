@@ -65,11 +65,6 @@ Pricing rules live in **Shopify Metaobjects**, not in code. A **Cart Transform F
 
 ```
 .
-├── theme/                                   Custom theme files (copy into a Dawn theme)
-│   ├── sections/curtain-configurator.liquid Section: markup, styles, schema, Liquid data
-│   ├── assets/curtain-configurator.js       <curtain-configurator> custom element
-│   └── templates/product.json               Product template using the section
-│
 ├── extensions/cart-transformer-rop/         Cart Transform Function
 │   ├── src/cart_transform_run.graphql       Function input query
 │   ├── src/cart_transform_run.js            Pricing logic (server-side)
