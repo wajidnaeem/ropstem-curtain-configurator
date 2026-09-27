@@ -1,0 +1,414 @@
+{%- liquid
+  assign pricing_tiers = product.metafields.custom.curtain_pricing_tiers.value
+
+  comment
+    Width limits come from the metaobject tiers, not hardcoded values.
+  endcomment
+  assign min_width = 0
+  assign max_width = 0
+  for tier in pricing_tiers
+    assign tier_min = tier.min_width.value | plus: 0
+    assign tier_max = tier.max_width.value | plus: 0
+    if forloop.first or tier_min < min_width
+      assign min_width = tier_min
+    endif
+    if tier_max > max_width
+      assign max_width = tier_max
+    endif
+  endfor
+
+  comment
+    Find the Drop and Fabric options by name, so their order on the product doesn't matter.
+  endcomment
+  assign drop_option_name = section.settings.drop_option_name | downcase | strip
+  assign fabric_option_name = section.settings.fabric_option_name | downcase | strip
+  assign drop_option = nil
+  assign drop_option_index = -1
+  assign fabric_option_index = -1
+  for option in product.options_with_values
+    assign option_name = option.name | downcase | strip
+    if option_name == drop_option_name
+      assign drop_option = option
+      assign drop_option_index = forloop.index0
+    elsif option_name == fabric_option_name
+      assign fabric_option_index = forloop.index0
+    endif
+  endfor
+-%}
+
+<curtain-configurator
+  class="curtain-configurator"
+  data-section-id="{{ section.id }}"
+  data-product-id="{{ product.id }}"
+  data-min-width="{{ min_width }}"
+  data-max-width="{{ max_width }}"
+  data-drop-option-index="{{ drop_option_index }}"
+  data-fabric-option-index="{{ fabric_option_index }}"
+>
+  <div class="curtain-configurator__inner">
+
+    {%- comment -%}
+      ============================================================
+      PRODUCT / VARIANT DATA
+      ============================================================
+      Variants are matched in JS by Drop + Fabric option values.
+    {%- endcomment -%}
+    <script type="application/json" data-variants>
+      {{ product.variants | json }}
+    </script>
+
+    {%- comment -%}
+      ============================================================
+      PRICING TIER DATA (from custom.curtain_pricing_tiers)
+      ============================================================
+      Money fields are objects, so we read `.amount` and convert
+      to cents to avoid floating-point rounding in JavaScript.
+    {%- endcomment -%}
+    <script type="application/json" data-pricing-tiers>
+      [
+        {%- for tier in pricing_tiers -%}
+          {
+            "min_width": {{ tier.min_width.value | plus: 0 | json }},
+            "max_width": {{ tier.max_width.value | plus: 0 | json }},
+            "panels_required": {{ tier.panels_required.value | plus: 0 | json }},
+            "base_price": {{ tier.base_price.value | money_without_currency | remove: ',' | times: 100 | round | json }},
+            "price_per_drop_tier": {{ tier.price_per_drop_tier.value | money_without_currency | remove: ',' | times: 100 | round | json }}
+
+          }{%- unless forloop.last -%},{%- endunless -%}
+        {%- endfor -%}
+      ]
+    </script>
+
+    <div class="curtain-configurator__header">
+      <h2 class="curtain-configurator__title">{{ section.settings.heading | escape }}</h2>
+      {%- if section.settings.description != blank -%}
+        <div class="curtain-configurator__description">{{ section.settings.description }}</div>
+      {%- endif -%}
+    </div>
+
+    {%- if pricing_tiers == blank -%}
+      <p class="curtain-configurator__notice">
+        Pricing is not configured for this product. Link Curtain Pricing Tier entries
+        in the product's <code>custom.curtain_pricing_tiers</code> metafield.
+      </p>
+    {%- else -%}
+
+      {%- comment -%} WIDTH: a customer measurement, not a variant. {%- endcomment -%}
+      <div class="curtain-configurator__field">
+        <label class="curtain-configurator__label" for="CurtainWidth-{{ section.id }}">
+          Width (cm)
+        </label>
+        <input
+          id="CurtainWidth-{{ section.id }}"
+          class="curtain-configurator__input"
+          type="number"
+          name="width"
+          min="{{ min_width }}"
+          max="{{ max_width }}"
+          step="1"
+          value="{{ min_width }}"
+          inputmode="numeric"
+          autocomplete="off"
+          aria-describedby="CurtainWidthHelp-{{ section.id }} CurtainWidthError-{{ section.id }}"
+          data-width
+        >
+        <p id="CurtainWidthHelp-{{ section.id }}" class="curtain-configurator__help">
+          Enter a width between {{ min_width }} cm and {{ max_width }} cm.
+        </p>
+        {%- comment -%}
+          Never `hidden`: the line keeps its reserved height so showing
+          an error causes zero layout shift.
+        {%- endcomment -%}
+        <p
+          id="CurtainWidthError-{{ section.id }}"
+          class="curtain-configurator__error"
+          role="alert"
+          aria-live="polite"
+          data-width-error
+        ></p>
+      </div>
+
+      {%- comment -%}
+        DROP: built from the product's own Drop option values, so the
+        radios always match real variants. `value` is the number (cm) for
+        pricing; `data-option-value` is the exact variant value.
+        Drop tier = position of the value (1st = tier 1, 2nd = tier 2, ...).
+      {%- endcomment -%}
+      <div class="curtain-configurator__field">
+        <fieldset class="curtain-configurator__fieldset">
+          <legend class="curtain-configurator__label">Drop</legend>
+          <div class="curtain-configurator__drop-options" data-drop-options>
+            {%- if drop_option -%}
+              {%- for value in drop_option.values -%}
+                {%- assign drop_cm = value | downcase | remove: 'cm' | strip | plus: 0 -%}
+                <label class="curtain-configurator__choice">
+                  <input
+                    type="radio"
+                    name="Drop-{{ section.id }}"
+                    value="{{ drop_cm }}"
+                    data-option-value="{{ value | escape }}"
+                    data-drop-tier="{{ forloop.index }}"
+                    {% if forloop.first %}checked{% endif %}
+                    data-drop
+                  >
+                  <span>{{ drop_cm }} cm</span>
+                </label>
+              {%- endfor -%}
+            {%- else -%}
+              <p class="curtain-configurator__notice">
+                No "{{ section.settings.drop_option_name | escape }}" option found on this product.
+              </p>
+            {%- endif -%}
+          </div>
+        </fieldset>
+      </div>
+
+      {%- comment -%} FABRIC: swatches from section blocks. {%- endcomment -%}
+      <div class="curtain-configurator__field">
+        <fieldset class="curtain-configurator__fieldset">
+          <legend class="curtain-configurator__label">Fabric</legend>
+          <div class="curtain-configurator__swatches" data-fabric-options>
+            {%- for block in section.blocks -%}
+              <label class="curtain-configurator__swatch" {{ block.shopify_attributes }}>
+                <input
+                  type="radio"
+                  name="Fabric-{{ section.id }}"
+                  value="{{ block.settings.fabric_value | escape }}"
+                  {% if forloop.first %}checked{% endif %}
+                  data-fabric
+                >
+                <span
+                  class="curtain-configurator__swatch-color"
+                  style="background-color: {{ block.settings.swatch_color }};"
+                  aria-hidden="true"
+                ></span>
+                <span class="curtain-configurator__swatch-label">{{ block.settings.fabric_label | escape }}</span>
+              </label>
+            {%- endfor -%}
+          </div>
+        </fieldset>
+      </div>
+
+      {%- comment -%}
+        SUMMARY: fixed heights + tabular numbers = zero layout shift.
+        The panel count is internal; it is only shown if the merchant opts in.
+      {%- endcomment -%}
+      <div class="curtain-configurator__summary">
+        {%- if section.settings.show_panel_count -%}
+          <div class="curtain-configurator__summary-row">
+            <span>Required fabric panels</span>
+            <strong data-panel-count>—</strong>
+          </div>
+        {%- endif -%}
+        <div class="curtain-configurator__summary-row">
+          <span>Price</span>
+          <strong class="curtain-configurator__price" data-price aria-live="polite">—</strong>
+        </div>
+      </div>
+
+      <button type="button" class="curtain-configurator__add" data-add-to-cart disabled>
+        Calculate price
+      </button>
+
+      {%- comment -%} Cart errors/success shown inline instead of alert(). {%- endcomment -%}
+      <p class="curtain-configurator__message" role="status" aria-live="polite" data-message></p>
+
+    {%- endif -%}
+  </div>
+</curtain-configurator>
+
+{% style %}
+  .curtain-configurator { display: block; width: 100%; }
+  .curtain-configurator__inner { max-width: 700px; margin: 0 auto; padding: 0 1.5rem; }
+  .curtain-configurator__header { margin-bottom: 24px; }
+  .curtain-configurator__title { margin: 0 0 8px; }
+  .curtain-configurator__description { color: rgba(var(--color-foreground), 0.7); }
+  .curtain-configurator__field { margin-bottom: 24px; }
+  .curtain-configurator__label { display: block; margin-bottom: 10px; font-weight: 600; }
+
+  .curtain-configurator__input {
+    width: 100%;
+    min-height: 48px;
+    padding: 10px 12px;
+    border: 1px solid rgba(var(--color-foreground), 0.25);
+    border-radius: 4px;
+    background: rgb(var(--color-background));
+    color: rgb(var(--color-foreground));
+    font: inherit;
+  }
+  .curtain-configurator__input[aria-invalid="true"] { border-color: #b42318; }
+
+  .curtain-configurator__help { margin: 6px 0 0; font-size: 13px; color: rgba(var(--color-foreground), 0.65); }
+
+  /* Reserved height: showing/clearing an error never moves the layout. */
+  .curtain-configurator__error,
+  .curtain-configurator__message {
+    min-height: 20px;
+    margin: 6px 0 0;
+    font-size: 13px;
+    line-height: 20px;
+  }
+  .curtain-configurator__error { color: #b42318; }
+  .curtain-configurator__message[data-state="error"] { color: #b42318; }
+  .curtain-configurator__message[data-state="success"] { color: #067647; }
+  .curtain-configurator__error[hidden],
+  .curtain-configurator__message[hidden] { display: block !important; visibility: hidden; }
+
+  .curtain-configurator__notice {
+    padding: 12px;
+    border: 1px dashed rgba(var(--color-foreground), 0.3);
+    border-radius: 4px;
+    font-size: 14px;
+  }
+
+  .curtain-configurator__fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+  .curtain-configurator__drop-options,
+  .curtain-configurator__swatches { display: flex; flex-wrap: wrap; gap: 10px; }
+
+  .curtain-configurator__choice,
+  .curtain-configurator__swatch { position: relative; cursor: pointer; }
+
+  .curtain-configurator__choice input,
+  .curtain-configurator__swatch input {
+    position: absolute;
+    inset: 0;
+    margin: 0;
+    opacity: 0;
+    cursor: pointer;
+  }
+
+  .curtain-configurator__choice span {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 80px;
+    min-height: 44px;
+    padding: 8px 14px;
+    border: 1px solid rgba(var(--color-foreground), 0.25);
+    border-radius: 4px;
+  }
+  .curtain-configurator__choice input:checked + span,
+  .curtain-configurator__swatch:has(input:checked) {
+    border-color: rgb(var(--color-foreground));
+    box-shadow: inset 0 0 0 1px rgb(var(--color-foreground));
+  }
+  .curtain-configurator__choice input:focus-visible + span,
+  .curtain-configurator__swatch:has(input:focus-visible) {
+    outline: 2px solid rgb(var(--color-foreground));
+    outline-offset: 2px;
+  }
+
+  .curtain-configurator__swatch {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 44px;
+    padding: 6px 12px;
+    border: 1px solid rgba(var(--color-foreground), 0.25);
+    border-radius: 4px;
+  }
+  .curtain-configurator__swatch-color {
+    width: 24px;
+    height: 24px;
+    flex: 0 0 24px;
+    border: 1px solid rgba(var(--color-foreground), 0.2);
+    border-radius: 50%;
+  }
+
+  .curtain-configurator__summary {
+    margin: 24px 0;
+    padding: 16px;
+    border: 1px solid rgba(var(--color-foreground), 0.15);
+    border-radius: 6px;
+  }
+  .curtain-configurator__summary-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    min-height: 32px;
+  }
+  /* Tabular digits: changing numbers keep the same width. */
+  .curtain-configurator__price,
+  .curtain-configurator__add,
+  [data-panel-count] { font-variant-numeric: tabular-nums; }
+  .curtain-configurator__price { font-size: 20px; }
+
+  .curtain-configurator__add {
+    width: 100%;
+    height: 50px;
+    border: 0;
+    border-radius: 4px;
+    background: rgb(var(--color-foreground));
+    color: rgb(var(--color-background));
+    font: inherit;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    cursor: pointer;
+    transition: opacity 0.15s ease;
+  }
+  .curtain-configurator__add:disabled { opacity: 0.5; cursor: not-allowed; }
+{% endstyle %}
+
+<script src="{{ 'curtain-configurator.js' | asset_url }}" defer></script>
+
+{% schema %}
+{
+  "name": "Curtain Configurator",
+  "tag": "section",
+  "class": "section",
+  "enabled_on": { "templates": ["product"] },
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Customize your curtain" },
+    { "type": "richtext", "id": "description", "label": "Description", "default": "<p>Choose your dimensions and fabric.</p>" },
+    {
+      "type": "text",
+      "id": "drop_option_name",
+      "label": "Drop option name",
+      "default": "Drop",
+      "info": "Must match the product option name used for drop lengths."
+    },
+    {
+      "type": "text",
+      "id": "fabric_option_name",
+      "label": "Fabric option name",
+      "default": "Fabric",
+      "info": "Must match the product option name used for fabric/colour."
+    },
+    {
+      "type": "checkbox",
+      "id": "show_panel_count",
+      "label": "Show fabric panel count to customers",
+      "default": false,
+      "info": "Panel count is an internal production value. It is always sent with the order as _fabric_panels."
+    }
+  ],
+  "blocks": [
+    {
+      "type": "fabric",
+      "name": "Fabric",
+      "settings": [
+        { "type": "text", "id": "fabric_label", "label": "Fabric label", "default": "Beige" },
+        {
+          "type": "text",
+          "id": "fabric_value",
+          "label": "Variant fabric value",
+          "default": "Beige",
+          "info": "Must exactly match the Fabric variant value."
+        },
+        { "type": "color", "id": "swatch_color", "label": "Swatch color", "default": "#D8C3A5" }
+      ]
+    }
+  ],
+  "presets": [
+    {
+      "name": "Curtain Configurator",
+      "blocks": [
+        { "type": "fabric", "settings": { "fabric_label": "Beige", "fabric_value": "Beige", "swatch_color": "#D8C3A5" } },
+        { "type": "fabric", "settings": { "fabric_label": "Grey", "fabric_value": "Grey", "swatch_color": "#9B9B9B" } },
+        { "type": "fabric", "settings": { "fabric_label": "White", "fabric_value": "White", "swatch_color": "#F5F5F5" } }
+      ]
+    }
+  ]
+}
+{% endschema %}
